@@ -21,6 +21,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Show repository files
+        run: |
+          pwd
+          ls -la
+          find . -maxdepth 3 -type f
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -32,5 +38,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run automated tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           pytest -q
