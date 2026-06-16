@@ -1,4 +1,4 @@
-# Q4(a)-2: Streamlit Dashboard for PGCB Demand Forecasting
+# Q4(a) and Q5(a): Streamlit Dashboard for PGCB Demand Forecasting and Monitoring
 
 import streamlit as st
 import pandas as pd
@@ -12,8 +12,9 @@ st.set_page_config(
 st.title("PGCB Electricity Demand Forecasting Dashboard")
 st.write(
     "This dashboard supports stakeholder decision-making by showing demand trends, "
-    "model predictions, and forecast error patterns from the best model selected in Q2."
+    "model predictions, forecast error patterns, and monitoring metrics from the best model selected in Q2."
 )
+
 
 @st.cache_data
 def load_data():
@@ -21,6 +22,7 @@ def load_data():
     data["datetime"] = pd.to_datetime(data["datetime"])
     data["date"] = data["datetime"].dt.date
     return data
+
 
 df = load_data()
 
@@ -60,7 +62,9 @@ if filtered_df.empty:
 
 # Predictive and analytical output
 latest_row = filtered_df.sort_values("datetime").iloc[-1]
+
 avg_error = filtered_df["Absolute Error MW"].mean()
+
 mape = (
     abs(filtered_df["Actual Demand MW"] - filtered_df["Predicted Demand MW"])
     / filtered_df["Actual Demand MW"]
@@ -83,10 +87,69 @@ col3.metric(
     f"{mape:.2f}%"
 )
 
+# Q5(a): Monitoring Metrics Section
+st.divider()
+st.subheader("Monitoring Metrics")
+
+# Model performance monitoring
+monitor_mae = filtered_df["Absolute Error MW"].mean()
+
+monitor_rmse = np.sqrt(
+    np.mean(
+        (filtered_df["Actual Demand MW"] - filtered_df["Predicted Demand MW"]) ** 2
+    )
+)
+
+monitor_mape = (
+    abs(filtered_df["Actual Demand MW"] - filtered_df["Predicted Demand MW"])
+    / filtered_df["Actual Demand MW"]
+).mean() * 100
+
+# Data quality monitoring
+missing_cells = int(filtered_df.isna().sum().sum())
+duplicate_timestamps = int(filtered_df.duplicated(subset=["datetime"]).sum())
+
+m1, m2, m3, m4 = st.columns(4)
+
+m1.metric("Model MAE", f"{monitor_mae:,.0f} MW")
+m2.metric("Model RMSE", f"{monitor_rmse:,.0f} MW")
+m3.metric("Missing Cells", missing_cells)
+m4.metric("Duplicate Timestamps", duplicate_timestamps)
+
+monitoring_table = pd.DataFrame({
+    "Monitoring Metric": [
+        "Model MAE",
+        "Model RMSE",
+        "Missing Cell Count",
+        "Duplicate Timestamp Count"
+    ],
+    "Metric Type": [
+        "Model Performance",
+        "Model Performance",
+        "Data Quality",
+        "Data Quality"
+    ],
+    "What Is Being Monitored": [
+        "Average prediction error in megawatts.",
+        "Larger prediction errors in the selected dashboard data.",
+        "Number of missing cells in the filtered dashboard data.",
+        "Number of repeated datetime values in the filtered dashboard data."
+    ],
+    "Current Result": [
+        f"{monitor_mae:,.0f} MW",
+        f"{monitor_rmse:,.0f} MW",
+        missing_cells,
+        duplicate_timestamps
+    ]
+})
+
+st.dataframe(monitoring_table, use_container_width=True)
+
 st.divider()
 
 # Visualization 1
 st.subheader("Visualization 1: Actual vs Predicted Demand")
+
 line_data = filtered_df[
     ["datetime", "Actual Demand MW", "Predicted Demand MW"]
 ].set_index("datetime")
@@ -95,6 +158,7 @@ st.line_chart(line_data)
 
 # Visualization 2
 st.subheader("Visualization 2: Average Demand by Hour")
+
 hourly_avg = (
     filtered_df.groupby("hour")["Actual Demand MW"]
     .mean()
@@ -106,15 +170,18 @@ st.bar_chart(hourly_avg.set_index("hour"))
 
 # Visualization 3
 st.subheader("Visualization 3: Prediction Error Distribution")
+
 if filtered_df["Absolute Error MW"].nunique() > 1:
     counts, edges = np.histogram(filtered_df["Absolute Error MW"], bins=15)
+
     hist_df = pd.DataFrame({
         "Error Range": [
-            f"{int(edges[i])}-{int(edges[i+1])} MW"
+            f"{int(edges[i])}-{int(edges[i + 1])} MW"
             for i in range(len(edges) - 1)
         ],
         "Number of Records": counts
     })
+
     st.bar_chart(hist_df.set_index("Error Range"))
 else:
     st.info("Not enough error variation to show a distribution.")
