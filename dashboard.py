@@ -1,4 +1,4 @@
-# Q4(a) and Q5(a): Streamlit Dashboard for PGCB Demand Forecasting and Monitoring
+# Q4(a), Q5(a), and Q5(b): Streamlit Dashboard for PGCB Demand Forecasting and Monitoring
 
 import streamlit as st
 import pandas as pd
@@ -12,7 +12,8 @@ st.set_page_config(
 st.title("PGCB Electricity Demand Forecasting Dashboard")
 st.write(
     "This dashboard supports stakeholder decision-making by showing demand trends, "
-    "model predictions, forecast error patterns, and monitoring metrics from the best model selected in Q2."
+    "model predictions, forecast error patterns, monitoring metrics, and performance degradation analysis "
+    "from the best model selected in Q2."
 )
 
 
@@ -22,6 +23,23 @@ def load_data():
     data["datetime"] = pd.to_datetime(data["datetime"])
     data["date"] = data["datetime"].dt.date
     return data
+
+
+def calculate_metrics(data):
+    mae = data["Absolute Error MW"].mean()
+
+    rmse = np.sqrt(
+        np.mean(
+            (data["Actual Demand MW"] - data["Predicted Demand MW"]) ** 2
+        )
+    )
+
+    mape = (
+        abs(data["Actual Demand MW"] - data["Predicted Demand MW"])
+        / data["Actual Demand MW"]
+    ).mean() * 100
+
+    return mae, rmse, mape
 
 
 df = load_data()
@@ -51,7 +69,7 @@ filtered_df = df[
     (df["date"] >= date_range[0]) &
     (df["date"] <= date_range[1]) &
     (df["hour"].isin(selected_hours))
-]
+].copy()
 
 if show_peak_only:
     filtered_df = filtered_df[filtered_df["is_peak_hour"] == 1]
@@ -60,15 +78,12 @@ if filtered_df.empty:
     st.warning("No records found for the selected filters.")
     st.stop()
 
+filtered_df = filtered_df.sort_values("datetime").reset_index(drop=True)
+
 # Predictive and analytical output
-latest_row = filtered_df.sort_values("datetime").iloc[-1]
+latest_row = filtered_df.iloc[-1]
 
-avg_error = filtered_df["Absolute Error MW"].mean()
-
-mape = (
-    abs(filtered_df["Actual Demand MW"] - filtered_df["Predicted Demand MW"])
-    / filtered_df["Actual Demand MW"]
-).mean() * 100
+avg_error, overall_rmse, mape = calculate_metrics(filtered_df)
 
 col1, col2, col3 = st.columns(3)
 
@@ -92,18 +107,7 @@ st.divider()
 st.subheader("Monitoring Metrics")
 
 # Model performance monitoring
-monitor_mae = filtered_df["Absolute Error MW"].mean()
-
-monitor_rmse = np.sqrt(
-    np.mean(
-        (filtered_df["Actual Demand MW"] - filtered_df["Predicted Demand MW"]) ** 2
-    )
-)
-
-monitor_mape = (
-    abs(filtered_df["Actual Demand MW"] - filtered_df["Predicted Demand MW"])
-    / filtered_df["Actual Demand MW"]
-).mean() * 100
+monitor_mae, monitor_rmse, monitor_mape = calculate_metrics(filtered_df)
 
 # Data quality monitoring
 missing_cells = int(filtered_df.isna().sum().sum())
@@ -144,6 +148,99 @@ monitoring_table = pd.DataFrame({
 })
 
 st.dataframe(monitoring_table, use_container_width=True)
+
+# Q5(b): Model Performance Degradation Analysis
+st.divider()
+st.subheader("Model Performance Degradation Analysis")
+
+if len(filtered_df) < 20:
+    st.warning(
+        "Not enough records are available for performance degradation analysis. "
+        "Please select a wider date range."
+    )
+else:
+    split_point = len(filtered_df) // 2
+
+    reference_df = filtered_df.iloc[:split_point].copy()
+    current_df = filtered_df.iloc[split_point:].copy()
+
+    ref_mae, ref_rmse, ref_mape = calculate_metrics(reference_df)
+    cur_mae, cur_rmse, cur_mape = calculate_metrics(current_df)
+
+    mae_change = ((cur_mae - ref_mae) / ref_mae) * 100 if ref_mae != 0 else 0
+    rmse_change = ((cur_rmse - ref_rmse) / ref_rmse) * 100 if ref_rmse != 0 else 0
+    mape_change = ((cur_mape - ref_mape) / ref_mape) * 100 if ref_mape != 0 else 0
+
+    degradation_status = (
+        "Degradation Detected"
+        if (mae_change > 10 or rmse_change > 10 or mape_change > 10)
+        else "Stable"
+    )
+
+    d1, d2, d3, d4 = st.columns(4)
+
+    d1.metric(
+        "Current MAE",
+        f"{cur_mae:,.0f} MW",
+        delta=f"{mae_change:.2f}% vs reference"
+    )
+
+    d2.metric(
+        "Current RMSE",
+        f"{cur_rmse:,.0f} MW",
+        delta=f"{rmse_change:.2f}% vs reference"
+    )
+
+    d3.metric(
+        "Current MAPE",
+        f"{cur_mape:.2f}%",
+        delta=f"{mape_change:.2f}% vs reference"
+    )
+
+    d4.metric(
+        "Performance Status",
+        degradation_status
+    )
+
+    degradation_table = pd.DataFrame({
+        "Metric": ["MAE", "RMSE", "MAPE"],
+        "Reference Period": [
+            f"{ref_mae:,.0f} MW",
+            f"{ref_rmse:,.0f} MW",
+            f"{ref_mape:.2f}%"
+        ],
+        "Current Period": [
+            f"{cur_mae:,.0f} MW",
+            f"{cur_rmse:,.0f} MW",
+            f"{cur_mape:.2f}%"
+        ],
+        "Percentage Change": [
+            f"{mae_change:.2f}%",
+            f"{rmse_change:.2f}%",
+            f"{mape_change:.2f}%"
+        ],
+        "Interpretation": [
+            "Higher MAE means average forecast error increased.",
+            "Higher RMSE means larger forecast errors became more serious.",
+            "Higher MAPE means percentage forecast error increased."
+        ]
+    })
+
+    st.dataframe(degradation_table, use_container_width=True)
+
+    chart_df = pd.DataFrame({
+        "Metric": ["MAE", "RMSE", "MAPE"],
+        "Reference Period": [ref_mae, ref_rmse, ref_mape],
+        "Current Period": [cur_mae, cur_rmse, cur_mape]
+    }).set_index("Metric")
+
+    st.bar_chart(chart_df)
+
+    st.write(
+        "This analysis compares the earlier part of the selected dashboard data with the most recent part. "
+        "If the current period has higher errors than the reference period, the model may be showing performance degradation. "
+        "This can affect future model performance because the model may become less reliable when demand patterns change."
+    )
 
 st.divider()
 
